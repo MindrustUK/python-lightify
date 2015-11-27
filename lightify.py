@@ -335,7 +335,6 @@ class Lightify:
             self.__logger.debug('received "%d %s"', length, binascii.hexlify(data))
             data = self.__sock.recv(expected)
             expected = expected - len(data)
-            #string = string + data
             string = string + data.decode('UTF-8', 'ignore')
         self.__logger.debug('received "%s"' % string)
         return data
