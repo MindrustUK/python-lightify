@@ -1,0 +1,3 @@
+light:
+  platform: osramlightify
+  host: "Lightify-XXXX.my.domain.com"
