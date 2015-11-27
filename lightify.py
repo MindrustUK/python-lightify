@@ -187,13 +187,13 @@ class Lightify:
 
         try:
             self.__sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        except socket.error, msg:
+        except socket.error as msg:
             sys.stderr.write("[ERROR] %s\n" % msg[1])
             sys.exit(1)
- 
+
         try:
             self.__sock.connect((host, PORT))
-        except socket.error, msg:
+        except socket.error as msg:
             sys.stderr.write("[ERROR] %s\n" % msg[1])
             sys.exit(2)
 
@@ -335,8 +335,9 @@ class Lightify:
             self.__logger.debug('received "%d %s"', length, binascii.hexlify(data))
             data = self.__sock.recv(expected)
             expected = expected - len(data)
-            string = string + data
-        self.__logger.debug('received "%s"', binascii.hexlify(string))
+            #string = string + data
+            string = string + data.decode('UTF-8', 'ignore')
+        self.__logger.debug('received "%s"' % string)
         return data
 
     def update_light_status(self, light):
@@ -344,7 +345,6 @@ class Lightify:
         self.send(data)
         data = self.recv()
         return
-
 
         (on,lum,temp,red,green,blue,h) = struct.unpack("<27x2BH4B16x", data)
         self.__logger.debug('status: %0x %0x %d %0x %0x %0x %0x', on,lum,temp,red,green,blue,h)
@@ -375,7 +375,10 @@ class Lightify:
             self.__logger.debug("%d %d %d", i, pos, len(payload))
 
             (a,addr,status,name) = struct.unpack("<HQ16s16s", payload)
+            self.__logger.debug("Name: %s" % name)
+            name = name.decode("utf-8")
             name = name.replace('\0', "")
+            #name = name.replace('\0', "")
 
             self.__logger.debug('light: %x %x %s', a, addr, name)
             if addr in old_lights:
@@ -398,4 +401,3 @@ class Lightify:
         #return (on, lum, temp, red, green, blue)
 
         self.__lights = new_lights
-
