@@ -378,7 +378,6 @@ class Lightify:
             self.__logger.debug("Name: %s" % name)
             name = name.decode("utf-8")
             name = name.replace('\0', "")
-            #name = name.replace('\0', "")
 
             self.__logger.debug('light: %x %x %s', a, addr, name)
             if addr in old_lights:
