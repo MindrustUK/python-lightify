@@ -21,6 +21,8 @@
 # using a binary protocol
 #
 
+# 20160101 - Payload packet length changed in last firmware update, now 50 from 42 change: "pos = 9 + i * 42" to "pos = 9 + i * 50" not sure if this will break anything in the future.
+
 import binascii
 import socket
 import sys
@@ -335,6 +337,7 @@ class Lightify:
             self.__logger.debug('received "%d %s"', length, binascii.hexlify(data))
             data = self.__sock.recv(expected)
             expected = expected - len(data)
+            #string = string + data
             string = string + data.decode('UTF-8', 'ignore')
         self.__logger.debug('received "%s"' % string)
         return data
@@ -344,6 +347,7 @@ class Lightify:
         self.send(data)
         data = self.recv()
         return
+
 
         (on,lum,temp,red,green,blue,h) = struct.unpack("<27x2BH4B16x", data)
         self.__logger.debug('status: %0x %0x %d %0x %0x %0x %0x', on,lum,temp,red,green,blue,h)
@@ -368,15 +372,18 @@ class Lightify:
         new_lights = {}
 
         for i in range(0, num):
-            pos = 9 + i * 42
+            pos = 9 + i * 50
             payload = data[pos:pos+42]
 
-            self.__logger.debug("%d %d %d", i, pos, len(payload))
+            self.__logger.debug("Payload : %d %d %d", i, pos, len(payload))
 
             (a,addr,status,name) = struct.unpack("<HQ16s16s", payload)
-            self.__logger.debug("Name: %s" % name)
-            name = name.decode("utf-8")
+            self.__logger.debug("Raw Name: %s" % name)
+            name = name.decode('UTF-8', 'ignore')
+            name = ''.join(name.splitlines())
             name = name.replace('\0', "")
+            self.__logger.debug("Clean Name: %s" % name)
+
 
             self.__logger.debug('light: %x %x %s', a, addr, name)
             if addr in old_lights:
