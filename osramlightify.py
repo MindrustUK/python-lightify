@@ -79,7 +79,7 @@ class OsramLightifyLight(Light):
     @property
     def brightness(self):
         """ Brightness of this light between 0..255. """
-        #brightness = (self_.light.lum() * 2.55)
+        self._brightness = (self._light.lum() * 2.55)
         return self._brightness
 
     @property
@@ -100,6 +100,10 @@ class OsramLightifyLight(Light):
         self._light.set_onoff(1)
         self._state = self._light.on()
         _LOGGER.debug("turn_on Light state for light: %s is: %s " % (self._name, self._state))
+        if ATTR_BRIGHTNESS in kwargs:
+            self._brightness = kwargs[ATTR_BRIGHTNESS]
+            self._brightness = self._light.set_luminance(int(self._brightness / 2.55),0)
+            _LOGGER.debug("turn_on Light set_luminance for light: %s is: %s " % (self._name, self._brightness))
         self.update_ha_state()
 
     def turn_off(self, **kwargs):
