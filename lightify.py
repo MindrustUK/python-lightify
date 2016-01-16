@@ -181,7 +181,7 @@ class Group(Luminary):
         return self.__conn.build_command(command, self, data)
 
 
-class Lightify:
+class Lightify(object):
     def __init__(self, host):
         self.__logger = logging.getLogger(MODULE)
         self.__logger.addHandler(logging.NullHandler())
