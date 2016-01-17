@@ -11,15 +11,19 @@ Need to add polling support (If lights are switched on from Android App etc).
 
 """
 
-import random
 import logging
 import lightify
 
 from homeassistant.const import CONF_HOST
-from homeassistant.components.light import (Light, ATTR_BRIGHTNESS, ATTR_RGB_COLOR, ATTR_XY_COLOR)
+from homeassistant.components.light import (
+    Light,
+    ATTR_BRIGHTNESS,
+    ATTR_RGB_COLOR
+)
 from homeassistant.util.color import color_RGB_to_xy
 
 _LOGGER = logging.getLogger(__name__)
+
 
 def setup_platform(hass, config, add_devices_callback, discovery_info=None):
     """ Find and return lights. """
@@ -31,22 +35,22 @@ def setup_platform(hass, config, add_devices_callback, discovery_info=None):
 
     _LOGGER.debug("Listing Light Info")
     for (addr, light) in conn.lights().items():
-       _LOGGER.debug("Address: %s" % addr)
-       _LOGGER.debug("Light: %s" % light)
-       _LOGGER.debug("Light Name: %s " % light.name())
-       _LOGGER.debug("Light State: %s " % light.on())
-       _LOGGER.debug("Light Lum: %s " % light.lum())
-       _LOGGER.debug("Light Temp: %s " % light.temp())
-       _LOGGER.debug("Light RGB: %s %s %s" % light.rgb())
+        _LOGGER.debug("Address: %s" % addr)
+        _LOGGER.debug("Light: %s" % light)
+        _LOGGER.debug("Light Name: %s " % light.name())
+        _LOGGER.debug("Light State: %s " % light.on())
+        _LOGGER.debug("Light Lum: %s " % light.lum())
+        _LOGGER.debug("Light Temp: %s " % light.temp())
+        _LOGGER.debug("Light RGB: %s %s %s" % light.rgb())
 
-       name = light.name()
-       state = light.on()
+        name = light.name()
+        state = light.on()
 
-       # Needs handling in here for NON-RGBW Lights, I've only got RGBW Lights to test with
-       rgb_color = light.rgb()
+        # Needs handling in here for NON-RGBW Lights, I've only got RGBW Lights to test with
+        rgb_color = light.rgb()
 
-       brightness = (light.lum() * 2.55)
-       lights.append(OsramLightifyLight(addr, light, name, state, rgb_color, brightness))
+        brightness = (light.lum() * 2.55)
+        lights.append(OsramLightifyLight(addr, light, name, state, rgb_color, brightness))
 
     _LOGGER.info("Adding Lights: %s " % lights)
     add_devices_callback(lights)
@@ -63,7 +67,7 @@ class OsramLightifyLight(Light):
         r = self._rgb_color[0]
         g = self._rgb_color[1]
         b = self._rgb_color[2]
-        self._xy = color_RGB_to_xy(r,g,b)
+        self._xy = color_RGB_to_xy(r, g, b)
         self._brightness = brightness
 
     @property
@@ -84,7 +88,7 @@ class OsramLightifyLight(Light):
         r = self._rgb_color[0]
         g = self._rgb_color[1]
         b = self._rgb_color[2]
-        self._xy = color_RGB_to_xy(r,g,b)
+        self._xy = color_RGB_to_xy(r, g, b)
         return self._xy
 
     @property
@@ -117,12 +121,12 @@ class OsramLightifyLight(Light):
             r = self._rgb_color[0]
             g = self._rgb_color[1]
             b = self._rgb_color[2]
-            self._rgb_color = self._light.set_rgb(r,g,b,0)
+            self._rgb_color = self._light.set_rgb(r, g, b, 0)
             _LOGGER.debug("turn_on Light set_rgb for light: %s is: %s %s %s " % (self._name, r, g, b))
 
         if ATTR_BRIGHTNESS in kwargs:
             self._brightness = kwargs[ATTR_BRIGHTNESS]
-            self._brightness = self._light.set_luminance(int(self._brightness / 2.55),0)
+            self._brightness = self._light.set_luminance(int(self._brightness / 2.55), 0)
             _LOGGER.debug("turn_on Light set_luminance for light: %s is: %s " % (self._name, self._brightness))
         self.update_ha_state()
 
