@@ -21,15 +21,12 @@
 # using a binary protocol
 #
 
-# 20160101 - Payload packet length changed in last firmware update, now 50 from
-# 42 change: "pos = 9 + i * 42" to "pos = 9 + i * 50" not sure if this will
-# break anything in the future.
-
 import binascii
 import socket
-import sys
 import struct
 import logging
+
+__version__ = '1.0.3'
 
 MODULE = __name__
 PORT = 4000
@@ -181,7 +178,7 @@ class Group(Luminary):
         return self.__conn.build_command(command, self, data)
 
 
-class Lightify(object):
+class Lightify:
     def __init__(self, host):
         self.__logger = logging.getLogger(MODULE)
         self.__logger.addHandler(logging.NullHandler())
@@ -191,17 +188,14 @@ class Lightify(object):
         self.__groups = {}
         self.__lights = {}
 
-        try:
-            self.__sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        except socket.error as msg:
-            sys.stderr.write("[ERROR] %s\n" % msg[1])
-            sys.exit(1)
+        self.host = host
+        self.connect() # Debugging purposes only
 
-        try:
-            self.__sock.connect((host, PORT))
-        except socket.error as msg:
-            sys.stderr.write("[ERROR] %s\n" % msg[1])
-            sys.exit(2)
+    def connect(self):
+        self.__sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.__sock.settimeout(5)
+        self.__sock.connect((self.host, PORT))
+        self.__logger.warning("Lightify Connecting...")
 
     def groups(self):
         """Dict from group name to Group object."""
@@ -222,27 +216,84 @@ class Lightify(object):
 
     def next_seq(self):
         self.__seq = self.__seq + 1
+        if self.__seq > 255:
+            self.__seq = 0
         return self.__seq
 
     def build_global_command(self, command, data):
         length = 6 + len(data)
+        try:
+            result = struct.pack(
+                "<H6B",
+                length,
+                0x02,
+                command,
+                0,
+                0,
+                0x7,
+                self.next_seq()
+            ) + data
+        except TypeError:
+            # Decode using cp437 for python3. This is not UTF-8
+            result = struct.pack(
+                "<H6B",
+                length,
+                0x02,
+                command,
+                0,
+                0,
+                0x7,
+                self.next_seq()
+            ) + data.decode('cp437')
 
-        return struct.pack("<H6B", length, 0x02, command, 0, 0, 0x7, self.next_seq()) + data
+        return result
 
     def build_basic_command(self, flag, command, group_or_light, data):
         length = 14 + len(data)
+        try:
+            result = struct.pack(
+                "<H6B",
+                length,
+                flag,
+                command,
+                0,
+                0,
+                0x7,
+                self.next_seq()
+            ) + group_or_light + data
+        except TypeError:
+            # Decode using cp437 for python3. This is not UTF-8
+            result = struct.pack(
+                "<H6B",
+                length,
+                flag,
+                command,
+                0,
+                0,
+                0x7,
+                self.next_seq()
+            ) + group_or_light + data.decode('cp437')
 
-        return struct.pack("<H6B", length, flag, command, 0, 0, 0x7, self.next_seq()) + group_or_light + data
+        return result
 
     def build_command(self, command, group, data):
         # length = 14 + len(data)
 
-        return self.build_basic_command(0x02, command, struct.pack("<8B", group.idx(), 0, 0, 0, 0, 0, 0, 0), data)
+        return self.build_basic_command(
+            0x02,
+            command,
+            struct.pack("<8B", group.idx(), 0, 0, 0, 0, 0, 0, 0),
+            data)
 
     def build_light_command(self, command, light, data):
         # length = 6 + 8 + len(data)
 
-        return self.build_basic_command(0x00, command, struct.pack("<Q", light.addr()), data)
+        return self.build_basic_command(
+            0x00,
+            command,
+            struct.pack("<Q", light.addr()),
+            data
+        )
 
     def build_onoff(self, item, on):
         return item.build_command(COMMAND_ONOFF, struct.pack("<B", on))
@@ -251,16 +302,25 @@ class Lightify(object):
         return item.build_command(COMMAND_TEMP, struct.pack("<HH", temp, time))
 
     def build_luminance(self, item, luminance, time):
-        return item.build_command(COMMAND_LUMINANCE, struct.pack("<BH", luminance, time))
+        return item.build_command(
+            COMMAND_LUMINANCE,
+            struct.pack("<BH", luminance, time)
+        )
 
     def build_colour(self, item, red, green, blue, time):
-        return item.build_command(COMMAND_COLOUR, struct.pack("<BBBBH", red, green, blue, 0xff, time))
+        return item.build_command(
+            COMMAND_COLOUR,
+            struct.pack("<BBBBH", red, green, blue, 0xff, time)
+        )
 
     def build_group_info(self, group):
         return self.build_command(COMMAND_GROUP_INFO, group, "")
 
     def build_all_light_status(self, flag):
-        return self.build_global_command(COMMAND_ALL_LIGHT_STATUS, struct.pack("<B", flag))
+        return self.build_global_command(
+            COMMAND_ALL_LIGHT_STATUS,
+            struct.pack("<B", flag)
+        )
 
     def build_light_status(self, light):
         return light.build_command(COMMAND_LIGHT_STATUS, "")
@@ -322,11 +382,20 @@ class Lightify(object):
 
     def send(self, data):
         self.__logger.debug('sending "%s"', binascii.hexlify(data))
-        return self.__sock.sendall(data)
+        if not self.__sock:
+            self.connect()
+        try:
+            res = self.__sock.sendall(data)
+        except (socket.timeout, BrokenPipeError, ConnectionResetError):
+            return self.connect()
+        return res
 
     def recv(self):
         lengthsize = 2
-        data = self.__sock.recv(lengthsize)
+        try:
+            data = self.__sock.recv(lengthsize)
+        except (socket.timeout, BrokenPipeError, ConnectionResetError):
+            return self.connect()
         (length,) = struct.unpack("<H", data[:lengthsize])
 
         self.__logger.debug(len(data))
@@ -336,12 +405,19 @@ class Lightify(object):
         self.__logger.debug("Expected %d", expected)
 
         while expected > 0:
-            self.__logger.debug('received "%d %s"', length, binascii.hexlify(data))
+            self.__logger.debug(
+                'received "%d %s"',
+                length,
+                binascii.hexlify(data)
+            )
             data = self.__sock.recv(expected)
             expected = expected - len(data)
-            # string = string + data
-            string = string + data.decode('UTF-8', 'ignore')
-        self.__logger.debug('received "%s"' % string)
+            try:
+                string = string + data
+            except TypeError:
+                # Decode using cp437 for python3. This is not UTF-8
+                string = string + data.decode('cp437')
+        self.__logger.debug('received "%s"', string)
         return data
 
     def update_light_status(self, light):
@@ -350,16 +426,16 @@ class Lightify(object):
         data = self.recv()
         return
 
-        (on, lum, temp, red, green, blue, h) = struct.unpack("<27x2BH4B16x", data)
-        self.__logger.debug('status: %0x %0x %d %0x %0x %0x %0x', on, lum, temp, red, green, blue, h)
-
+        (on, lum, temp, r, g, b, h) = struct.unpack("<27x2BH4B16x", data)
+        self.__logger.debug(
+            'status: %0x %0x %d %0x %0x %0x %0x', on, lum, temp, r, g, b, h)
         self.__logger.debug('onoff: %d', on)
         self.__logger.debug('temp:  %d', temp)
         self.__logger.debug('lum:   %d', lum)
-        self.__logger.debug('red:   %d', red)
-        self.__logger.debug('green: %d', green)
-        self.__logger.debug('blue:  %d', blue)
-        return (on, lum, temp, red, green, blue)
+        self.__logger.debug('red:   %d', r)
+        self.__logger.debug('green: %d', g)
+        self.__logger.debug('blue:  %d', b)
+        return (on, lum, temp, r, g, b)
 
     def update_all_light_status(self):
         data = self.build_all_light_status(1)
@@ -372,37 +448,37 @@ class Lightify(object):
         old_lights = self.__lights
         new_lights = {}
 
+        status_len = 50
         for i in range(0, num):
-            pos = 9 + i * 50
-            payload = data[pos:pos+42]
+            pos = 9 + i * status_len
+            payload = data[pos:pos+status_len]
 
-            self.__logger.debug("Payload : %d %d %d", i, pos, len(payload))
+            self.__logger.debug("%d %d %d", i, pos, len(payload))
 
-            (a, addr, status, name) = struct.unpack("<HQ16s16s", payload)
-            self.__logger.debug("Raw Name: %s" % name)
-            name = name.decode('UTF-8', 'ignore')
-            name = ''.join(name.splitlines())
-            name = name.replace('\0', "")
-            self.__logger.debug("Clean Name: %s" % name)
+            (a, addr, stat, name, extra) = struct.unpack("<HQ16s16sQ", payload)
+            try:
+                name = name.replace('\0', "")
+            except TypeError:
+                # Decode using cp437 for python3. This is not UTF-8
+                name = name.decode('cp437').replace('\0', "")
 
-            self.__logger.debug('light: %x %x %s', a, addr, name)
+            self.__logger.debug('light: %x %x %s %x', a, addr, name, extra)
             if addr in old_lights:
                 light = old_lights[addr]
             else:
                 light = Light(self, self.__logger, addr, name)
 
-            (b, on, lum, temp, red, green, blue, h) = struct.unpack("<Q2BH4B", status)
+            (b, on, lum, temp, r, g, b, h) = struct.unpack("<Q2BH4B", stat)
             self.__logger.debug('status: %x %0x', b, h)
-
             self.__logger.debug('onoff: %d', on)
             self.__logger.debug('temp:  %d', temp)
             self.__logger.debug('lum:   %d', lum)
-            self.__logger.debug('red:   %d', red)
-            self.__logger.debug('green: %d', green)
-            self.__logger.debug('blue:  %d', blue)
+            self.__logger.debug('red:   %d', r)
+            self.__logger.debug('green: %d', g)
+            self.__logger.debug('blue:  %d', b)
 
-            light.update_status(on, lum, temp, red, green, blue)
+            light.update_status(on, lum, temp, r, g, b)
             new_lights[addr] = light
-        # return (on, lum, temp, red, green, blue)
+        # return (on, lum, temp, r, g, b)
 
         self.__lights = new_lights
