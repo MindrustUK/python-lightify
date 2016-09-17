@@ -1,139 +1,168 @@
 """
-homeassistant.components.light.osramlightify
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Support for Osram Lightify.
 
-Osram Lightify platform that implements lights. Largely built off the demo example.
-Uses: https://github.com/mikma/python-lightify for the Osram light interface.
-
-Todo:
-Need to add support for Non RGBW lights.
-Need to add polling support (If lights are switched on from Android App etc).
-
+For more details about this platform, please refer to the documentation at
+https://home-assistant.io/components/light.osramlightify/
 """
-
 import logging
-import lightify
+import socket
+from datetime import timedelta
 
+from homeassistant import util
 from homeassistant.const import CONF_HOST
 from homeassistant.components.light import (
     Light,
     ATTR_BRIGHTNESS,
-    ATTR_RGB_COLOR
+    ATTR_COLOR_TEMP,
+    ATTR_RGB_COLOR,
+    ATTR_TRANSITION
 )
-from homeassistant.util.color import color_RGB_to_xy
 
 _LOGGER = logging.getLogger(__name__)
+REQUIREMENTS = ['lightify==1.0.3']
+
+TEMP_MIN = 2000               # lightify minimum temperature
+TEMP_MAX = 6500               # lightify maximum temperature
+TEMP_MIN_HASS = 154           # home assistant minimum temperature
+TEMP_MAX_HASS = 500           # home assistant maximum temperature
+MIN_TIME_BETWEEN_SCANS = timedelta(seconds=10)
+MIN_TIME_BETWEEN_FORCED_SCANS = timedelta(milliseconds=100)
 
 
 def setup_platform(hass, config, add_devices_callback, discovery_info=None):
-    """ Find and return lights. """
-    host = config.get(CONF_HOST, None)
-    conn = lightify.Lightify(host)
-    conn.update_all_light_status()
+    """Setup Osram Lightify lights."""
+    import lightify
+    host = config.get(CONF_HOST)
+    if host:
+        try:
+            bridge = lightify.Lightify(host)
+        except socket.error as err:
+            msg = 'Error connecting to bridge: {} due to: {}'.format(host,
+                                                                     str(err))
+            _LOGGER.exception(msg)
+            return False
+        setup_bridge(bridge, add_devices_callback)
+    else:
+        _LOGGER.error('No host found in configuration')
+        return False
 
-    lights = []
 
-    _LOGGER.debug("Listing Light Info")
-    for (addr, light) in conn.lights().items():
-        _LOGGER.debug("Address: %s" % addr)
-        _LOGGER.debug("Light: %s" % light)
-        _LOGGER.debug("Light Name: %s " % light.name())
-        _LOGGER.debug("Light State: %s " % light.on())
-        _LOGGER.debug("Light Lum: %s " % light.lum())
-        _LOGGER.debug("Light Temp: %s " % light.temp())
-        _LOGGER.debug("Light RGB: %s %s %s" % light.rgb())
+def setup_bridge(bridge, add_devices_callback):
+    """Setup the Lightify bridge."""
+    lights = {}
 
-        name = light.name()
-        state = light.on()
+    @util.Throttle(MIN_TIME_BETWEEN_SCANS, MIN_TIME_BETWEEN_FORCED_SCANS)
+    def update_lights():
+        """Update the lights objects with latest info from bridge."""
+        bridge.update_all_light_status()
 
-        # Needs handling in here for NON-RGBW Lights, I've only got RGBW Lights to test with
-        rgb_color = light.rgb()
+        new_lights = []
 
-        brightness = (light.lum() * 2.55)
-        lights.append(OsramLightifyLight(addr, light, name, state, rgb_color, brightness))
+        for (light_id, light) in bridge.lights().items():
+            if light_id not in lights:
+                osram_light = OsramLightifyLight(light_id, light,
+                                                 update_lights)
 
-    _LOGGER.info("Adding Lights: %s " % lights)
-    add_devices_callback(lights)
+                lights[light_id] = osram_light
+                new_lights.append(osram_light)
+            else:
+                lights[light_id].light = light
+
+        if new_lights:
+            add_devices_callback(new_lights)
+
+    update_lights()
 
 
 class OsramLightifyLight(Light):
-    """ Defines an Osram Lightify Light """
-    def __init__(self, addr, light, name, state, rgb_color, brightness, xy=None):
-        self._light = light
-        self._addr = addr
-        self._name = name
-        self._state = state
-        self._rgb_color = rgb_color
-        r = self._rgb_color[0]
-        g = self._rgb_color[1]
-        b = self._rgb_color[2]
-        self._xy = color_RGB_to_xy(r, g, b)
-        self._brightness = brightness
+    """Representation of an Osram Lightify Light."""
 
-    @property
-    def should_poll(self):
-        """ No polling needed for a demo light. """
-        return False
+    def __init__(self, light_id, light, update_lights):
+        """Initialize the light."""
+        self._light = light
+        self._light_id = light_id
+        self.update_lights = update_lights
+        self._brightness = int(self._light.lum() * 2.55)
 
     @property
     def name(self):
-        """ Returns the name of the device if any. """
-        self._name = self._light.name()
-        return self._name
-
-    @property
-    def color_xy(self):
-        """ XY color value. """
-        self._rgb_color = self._light.rgb()
-        r = self._rgb_color[0]
-        g = self._rgb_color[1]
-        b = self._rgb_color[2]
-        self._xy = color_RGB_to_xy(r, g, b)
-        return self._xy
+        """Return the name of the device if any."""
+        return self._light.name()
 
     @property
     def rgb_color(self):
-        """ Last RGB color value set. """
-        return self._rgb_color
+        """Last RGB color value set."""
+        return self._light.rgb()
+
+    @property
+    def color_temp(self):
+        """Return the color temperature."""
+        o_temp = self._light.temp()
+        temperature = int(TEMP_MIN_HASS + (TEMP_MAX_HASS - TEMP_MIN_HASS) *
+                          (o_temp - TEMP_MIN) / (TEMP_MAX - TEMP_MIN))
+        return temperature
 
     @property
     def brightness(self):
-        """ Brightness of this light between 0..255. """
-        self._brightness = (self._light.lum() * 2.55)
-        return self._brightness
+        """Brightness of this light between 0..255."""
+        self._light.brightness = (self._light.lum() * 2.55)
+        _LOGGER.debug("brightness for light %s is: %s" % (self._light.name(), self._light.brightness))
+        return self._light.brightness
 
     @property
     def is_on(self):
-        """ Update Status to True if device is on. """
-        self._state = self._light.on()
-        _LOGGER.debug("is_on light state for light: %s is: %s " % (self._name, self._state))
-        return self._state
+        """Update Status to True if device is on."""
+        self.update_lights()
+        _LOGGER.debug("is_on light state for light: %s is: %s", self._light.name(), self._light.on())
+        return self._light.on()
 
     def turn_on(self, **kwargs):
-        """ Turn the device on. """
-        _LOGGER.info("turn_on Attempting to turn on light: %s " % self._name)
+        """Turn the device on."""
+        _LOGGER.debug("turn_on Attempting to turn on light: %s " % self._light.name)
+
         self._light.set_onoff(1)
         self._state = self._light.on()
-        _LOGGER.debug("turn_on Light state for light: %s is: %s " % (self._name, self._state))
+
+        if ATTR_TRANSITION in kwargs:
+            transition = kwargs[ATTR_TRANSITION] * 10
+            _LOGGER.debug("turn_on requested transition time for light: %s is: %s " % (self._light.name, transition))
+        else:
+            transition = 0
+            _LOGGER.debug("turn_on requested transition time for light: %s is: %s " % (self._light.name, transition))
 
         if ATTR_RGB_COLOR in kwargs:
-            self._rgb_color = kwargs[ATTR_RGB_COLOR]
-            r = self._rgb_color[0]
-            g = self._rgb_color[1]
-            b = self._rgb_color[2]
-            self._rgb_color = self._light.set_rgb(r, g, b, 0)
-            _LOGGER.debug("turn_on Light set_rgb for light: %s is: %s %s %s " % (self._name, r, g, b))
+            red, green, blue = kwargs[ATTR_RGB_COLOR]
+            _LOGGER.debug("turn_on requested ATTR_RGB_COLOR for light: %s is: %s %s %s " % (self._light.name, red, green, blue))
+            self._light.set_rgb(red, green, blue, transition)
+
+        if ATTR_COLOR_TEMP in kwargs:
+            color_t = kwargs[ATTR_COLOR_TEMP]
+            kelvin = int(((TEMP_MAX - TEMP_MIN) * (color_t - TEMP_MIN_HASS) / (TEMP_MAX_HASS - TEMP_MIN_HASS)) + TEMP_MIN)
+            _LOGGER.debug("turn_on requested set_temperature for light: %s: %s " % (self._light.name, kelvin))
+            self._light.set_temperature(kelvin, transition)
 
         if ATTR_BRIGHTNESS in kwargs:
             self._brightness = kwargs[ATTR_BRIGHTNESS]
-            self._brightness = self._light.set_luminance(int(self._brightness / 2.55), 0)
-            _LOGGER.debug("turn_on Light set_luminance for light: %s is: %s " % (self._name, self._brightness))
+            _LOGGER.debug("turn_on requested brightness for light: %s is: %s " % (self._light.name, self._brightness))
+            self._brightness = self._light.set_luminance(int(self._brightness / 2.55), transition)
+
         self.update_ha_state()
 
     def turn_off(self, **kwargs):
-        """ Turn the device off. """
-        _LOGGER.info("turn_off Attempting to turn off light: %s " % self._name)
-        self._light.set_onoff(0)
-        self._state = self._light.on()
-        _LOGGER.debug("turn_off Light state for light: %s is: %s " % (self._name, self._state))
+        """Turn the device off."""
+        _LOGGER.debug("turn_off Attempting to turn off light: %s " % self._light.name)
+        if ATTR_TRANSITION in kwargs:
+            transition = kwargs[ATTR_TRANSITION] * 10
+            _LOGGER.debug("turn_off requested transition time for light: %s is: %s " % (self._light.name, transition))
+            self._light.set_luminance(0, transition)
+        else:
+            transition = 0
+            _LOGGER.debug("turn_off requested transition time for light: %s is: %s " % (self._light.name, transition))
+            self._light.set_onoff(0)
+            self._state = self._light.on()
+
         self.update_ha_state()
+
+    def update(self):
+        """Synchronize state with bridge."""
+        self.update_lights(no_throttle=True)
