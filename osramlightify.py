@@ -104,6 +104,7 @@ class OsramLightifyLight(Light):
     @property
     def rgb_color(self):
         """Last RGB color value set."""
+        _LOGGER.debug("rgb_color light state for light: %s is: %s %s %s " % (self._light.name(), self._light.red(), self._light.green(), self._light.blue()))
         return self._light.rgb()
 
     @property
