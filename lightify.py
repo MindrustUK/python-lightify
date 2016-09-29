@@ -189,7 +189,7 @@ class Lightify:
         self.__lights = {}
 
         self.host = host
-        self.connect() # Debugging purposes only
+        self.connect()  # Debugging purposes only
 
     def connect(self):
         self.__sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
